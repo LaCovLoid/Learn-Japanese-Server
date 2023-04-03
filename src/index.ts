@@ -1,22 +1,23 @@
-const express = require('express');
-const mysql = require('mysql2/promise');
-const crypto = require('crypto');
-const axios = require('axios').default;
-var cors = require('cors');
+import express, { json, urlencoded } from 'express';
+import { createConnection } from 'mysql2/promise';
+import crypto from 'crypto';
+import axios from 'axios';
+import cors from 'cors';
+import res from 'express/lib/response';
 
 const SEARCH_TYPE_ALL = 0
 const SEARCH_TYPE_SINGER = 1
 
 const app = express();
 const port = 3000;
-let connection;
+let connection: any;
 //let link = "https://www.youtube.com/user/ziller/search?query=" + number; 프런트에 사용해야함
 
 connectServer();
 
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(json());
+app.use(urlencoded({ extended: true }));
 
 app.listen(port, () => {
     console.log(`Example app listening on port ${port}`)
@@ -26,11 +27,11 @@ app.get('/number/:keyword', numberHandler);
 async function numberHandler(req, res) {
     if (connection == null) return;
 
-    let keyword = req.params.keyword;
-    if (keyword == null || isNaN(keyword)) return;
+    let keyword: string = req.params.keyword;
+    if (keyword == null || isNaN(Number(keyword))) return;
 
     let result = await search(keyword, "all", 16, 1, 1);
-    if (result[0].length == 0 || result[0][0].length == 0) return;
+    if (result == null || result[0].length == 0 || result[0][0] == null) return;
     res.send({ array: result[0][0] });
 }
 
@@ -38,18 +39,19 @@ app.get('/search/:keyword', searchHandler);
 async function searchHandler(req, res) {
     if (connection == null) return;
 
-    let keyword = req.params.keyword;
+    let keyword: string = req.params.keyword;
     if (keyword == null) return;
 
-    let strType = req.query.str_type;   // 검색종류 
-    let natType = req.query.nat_type;   // 국가별
-    let page = req.query.page;          // 페이지
+    let strType: string = req.query.str_type;   // 검색종류 
+    let natType: string = req.query.nat_type;   // 국가별
+    let page: string = req.query.page;          // 페이지
+    if (isNaN(Number(page))) return;
 
     // null,0=한번에 1=제목 2=가수 4=작사가 8=작곡가 16=곡번호 32=가사 그외엔 전체검색으로
     if (!strType) { res.status(400).send("failed"); return; }
     strType = strType.toLowerCase();
     if (!(strType == "all" || strType == "title" || strType == "singer" || strType == "writer" || strType == "maker" || strType == "number" || strType == "lyrics")) { res.status(400).send("failed"); return; }
-    if (strType == "all") page = 1;
+    if (strType == "all") page = "1";
     switch (strType) {
         case "all": strType = "0"
             break;
@@ -76,8 +78,8 @@ async function searchHandler(req, res) {
 
 
     //전체를 검색했을땐 page가 없기에 1로 설정
-    if (!page) page = 1;
-    if (isNaN(page) || page <= 0) { res.status(400).send("failed"); return; }
+    if (!page) page = "1";
+    if (isNaN(Number(page)) || Number(page) <= 0) { res.status(400).send("failed"); return; }
 
     let [queryResult] = await connection.query("SELECT `keywords`.`date`,`keywords`.`number`,`keywords`.`str_type`,`keywords`.`nat_type`,`keywords`.`page`,`keywords`.`class`,`keywords`.`date`,`songs`.`title`,`songs`.`singer`,`songs`.`writer`,`songs`.`maker` FROM `keywords`" +
         " LEFT JOIN `songs` ON `songs`.`number`=`keywords`.`number` WHERE `keywords`.`keyword`=?" +
@@ -87,22 +89,22 @@ async function searchHandler(req, res) {
     if (queryResult.length == null) return;
 
     let nowDate = new Date();
-    let filtered;
+    let filtered: {}[][] | undefined;
 
     if (queryResult.length <= 0) {
         //검색결과 암것도 없는경우 인걸 확인
-        filtered = await search(keyword, natType, strType, page, 0);
+        filtered = await search(keyword, natType, Number(strType), Number(page), 0);
     } else if ((nowDate.getTime() - queryResult[0].date.getTime()) > 60 * 60 * 1000) {
         //시간이 지났으니 삭제하고 실행
         await connection.query("DELETE FROM `keywords` WHERE `keyword`=? AND `page`=? AND `nat_type`=? AND `str_type`=?", [keyword, page, natType, strType]);
-        filtered = await search(keyword, natType, strType, page, 0);
+        filtered = await search(keyword, natType, Number(strType), Number(page), 0);
     } else {
         //기존에 있던걸 그대로 넣음
-        if (strType == 0 && queryResult[0].number != 0) {
+        if (strType == "0" && queryResult[0].number != 0) {
             filtered = [[], [], [], [], []];
             for (let i = 0; i < queryResult.length; i++) {
-                let locate;
-                let isSong = true;
+                let locate: number = 0;
+                let isSong: boolean = true;
                 switch (queryResult[i].class) {
                     case "title": locate = 0;
                         break;
@@ -121,7 +123,7 @@ async function searchHandler(req, res) {
                     filtered[locate].push(getSongInfo(queryResult[i]));
                 }
             }
-        } else if (strType == 0) {
+        } else if (Number(strType) == 0) {
             filtered = [[], [], [], [], []];
         } else {
             filtered = [[]];
@@ -136,31 +138,31 @@ async function searchHandler(req, res) {
 }
 
 
-async function search(keyword, natType, strType, page, strCond) {
+async function search(keyword: string, natType: string, strType: number, page: number, strCond: number) {
     let url = "https://www.tjmedia.com/tjsong/song_search_list.asp?strType=" + strType + "&natType=" + natType + "&strText=" + keyword + "&strCond=" + strCond + "&searchOrderItem=&searchOrderType=&searchOrderItem=&intPage=" + page;
     let result = await axios.get(url);
 
-    if (result == null) return;
-    result = result.data;
+    if (result == null || result.data == null) return;
+    let resultData = result.data as string;
 
-    let searchResult = [];
-    result = result.split("<!--노래제목검색 S-->");
+    let searchResult: {}[][] = [];
+    let resultDataArray = resultData.split("<!--노래제목검색 S-->");
     let nothing = true;
     // result[i] -> 1곡제목 2가수 3작사가 4작곡가 5곡번호 
-    for (let i = 1; i < result.length; i++) {
-        let tempArray = result[i].split("<tr>");
+    for (let i = 1; i < resultDataArray.length; i++) {
+        let tempArray = resultDataArray[i].split("<tr>");
         if (tempArray.length < 2) return;
 
-        let songs = [];
+        let songs: {}[] = [];
         let limit = strType == 0 ? tempArray.length : tempArray.length - 1;
 
         for (let j = 2; j < limit; j++) {
             // 가수 작사 작곡 
-            let number = tempArray[j].split("<td>")[1].split("</td>")[0].replace(/<\/?[^>]+(>|$)/g, "");
-            let title = tempArray[j].split("<td class=\"left\">")[1].split("</td>")[0].replace(/<\/?[^>]+(>|$)/g, "");
-            let singer = tempArray[j].split("<td>")[2].split("</td>")[0].replace(/<\/?[^>]+(>|$)/g, "");
-            let writer = tempArray[j].split("<td>")[3].split("</td>")[0].replace(/<\/?[^>]+(>|$)/g, "");
-            let maker = tempArray[j].split("<td>")[4].split("</td>")[0].replace(/<\/?[^>]+(>|$)/g, "");
+            let number: string = tempArray[j].split("<td>")[1].split("</td>")[0].replace(/<\/?[^>]+(>|$)/g, "");
+            let title: string = tempArray[j].split("<td class=\"left\">")[1].split("</td>")[0].replace(/<\/?[^>]+(>|$)/g, "");
+            let singer: string = tempArray[j].split("<td>")[2].split("</td>")[0].replace(/<\/?[^>]+(>|$)/g, "");
+            let writer: string = tempArray[j].split("<td>")[3].split("</td>")[0].replace(/<\/?[^>]+(>|$)/g, "");
+            let maker: string = tempArray[j].split("<td>")[4].split("</td>")[0].replace(/<\/?[^>]+(>|$)/g, "");
 
             let [songNumberResult] = await connection.query("SELECT `number` FROM `songs` WHERE `number`=?", [number]);
             if (songNumberResult.length == 0) {
@@ -209,7 +211,7 @@ async function search(keyword, natType, strType, page, strCond) {
 
 //왜인지 계속 두번 실행 될 때가 있음 ????????????????????????????????????????????????
 // TODO: 
-async function increaseCount(keyword) {
+async function increaseCount(keyword: string) {
     if (connection == null) return;
 
     let nowDate = new Date();
@@ -254,19 +256,19 @@ async function newSongHandler(req, res) {
     let nowDate = new Date();
     let [queryResult] = await connection.query("SELECT * FROM `new_songs`");
 
-    let songsArray = [];
+    let songsArray: {}[] = [];
     if (queryResult.length == 0 || nowDate.getTime() - queryResult[0].date.getTime() > 1000 * 60 * 60) {
         await connection.query("DELETE FROM `new_songs` WHERE 1");
 
         let result = await axios.get("https://www.tjmedia.com/tjsong/song_monthNew.asp");
-        result = result.data.split("<!--목록 S-->")[1].split("<tr>");
+        let resultData: string[] = result.data.split("<!--목록 S-->")[1].split("<tr>");
 
-        for (let i = 2; i < result.length; i++) {
-            let number = result[i].split("<td>")[1].split("</td>")[0];
-            let title = result[i].split("<td class=\"left\">")[1].split("</td>")[0];
-            let singer = result[i].split("<td>")[2].split("</td>")[0];
-            let writer = result[i].split("<td>")[3].split("</td>")[0];
-            let maker = result[i].split("<td>")[4].split("</td>")[0];
+        for (let i = 2; i < resultData.length; i++) {
+            let number = resultData[i].split("<td>")[1].split("</td>")[0];
+            let title = resultData[i].split("<td class=\"left\">")[1].split("</td>")[0];
+            let singer = resultData[i].split("<td>")[2].split("</td>")[0];
+            let writer = resultData[i].split("<td>")[3].split("</td>")[0];
+            let maker = resultData[i].split("<td>")[4].split("</td>")[0];
             songsArray.push({
                 number: number,
                 title: title,
@@ -297,18 +299,18 @@ async function popularSongHandler(req, res) {
     let nowDate = new Date();
     let [queryResult] = await connection.query("SELECT * FROM `popular_songs` ORDER BY `rank` ASC");
 
-    let songsArray = [];
+    let songsArray: {}[] = [];
     if (queryResult.length == 0 || nowDate.getTime() - queryResult[0].date.getTime() > 1000 * 60 * 60) {
         await connection.query("DELETE FROM `popular_songs` WHERE 1");
 
         let result = await axios.get("https://www.tjmedia.com/tjsong/song_monthPopular.asp");
-        result = result.data.split("<!--목록 S-->")[1].split("<tr>");
+        let resultData = result.data.split("<!--목록 S-->")[1].split("<tr>");
 
-        for (let i = 2; i < result.length; i++) {
-            let rank = result[i].split("<td>")[1].split("</td>")[0];
-            let number = result[i].split("<td>")[2].split("</td>")[0];
-            let title = result[i].split("<td class=\"left\">")[1].split("</td>")[0];
-            let singer = result[i].split("<td>")[3].split("</td>")[0];
+        for (let i = 2; i < resultData.length; i++) {
+            let rank = resultData[i].split("<td>")[1].split("</td>")[0];
+            let number = resultData[i].split("<td>")[2].split("</td>")[0];
+            let title = resultData[i].split("<td class=\"left\">")[1].split("</td>")[0];
+            let singer = resultData[i].split("<td>")[3].split("</td>")[0];
 
             songsArray.push({
                 rank: rank,
@@ -338,7 +340,7 @@ async function popularKeywordHandler(req, res) {
 
     let [popular_keywords] = await connection.query("SELECT * FROM `popular_keywords` ORDER BY `count` DESC  LIMIT 10");
 
-    let keywordsArray = [];
+    let keywordsArray: {}[] = [];
     for (let i = 0; i < popular_keywords.length; i++) {
         keywordsArray.push({
             keyword: popular_keywords[i].keyword,
@@ -357,12 +359,12 @@ async function lyricsHandler(req, res) {
     if (keyword == null) { res.status(400).send("failed"); return; }
 
     let [keywordQuery] = await connection.query("SELECT `number` FROM `lyrics_keywords` WHERE `keyword`=?", [keyword]);
-    let number;
+    let number: string;
     if (keywordQuery.length == 0) {
 
-        let melonSearch = await axios.get("https://www.melon.com/search/total/index.htm?q=" + keyword + "&section=&searchGnbYn=Y&kkoSpl=Y&kkoDpType=&mwkLogType=T");
-        if (!melonSearch) return;
-        melonSearch = melonSearch.data;
+        let melon = await axios.get("https://www.melon.com/search/total/index.htm?q=" + keyword + "&section=&searchGnbYn=Y&kkoSpl=Y&kkoDpType=&mwkLogType=T");
+        if (!melon) return;
+        let melonSearch = melon.data as string;
 
         if (melonSearch.indexOf("<!-- 검색 결과 없음 -->") != -1) {
             await connection.query("INSERT INTO `lyrics_keywords`(`keyword`,`number`) VALUES (?,?)", [keyword, 0]);
@@ -386,7 +388,11 @@ async function lyricsHandler(req, res) {
 
     let [lyricsQuery] = await connection.query("SELECT `lyrics` FROM `lyrics` WHERE `number`=?", [number]);
     let lyrics;
-    if (number == 0) {
+
+    if (isNaN(Number(number))) return;
+
+
+    if (Number(number) == 0) {
         lyrics = "검색 결과가 없습니다."
     } else if (lyricsQuery.length == 0) {
         let lyricsSearch = await axios.get("https://www.melon.com/song/detail.htm?songId=" + number);
@@ -409,12 +415,13 @@ async function lyricsHandler(req, res) {
 
 app.get('/youtube/:keyword', getYoutubeSearchInfo);
 async function getYoutubeSearchInfo(req, res) {
-    searchKeyword = req.params.keyword;
-    let response = await axios.get("https://www.youtube.com/results?search_query=" + searchKeyword);
+    let searchKeyword: string = req.params.keyword;
+    let response: any = await axios.get("https://www.youtube.com/results?search_query=" + searchKeyword);
+    if (response == null || response.data == null) return;
 
-    result = response.data;
+    let result: string = response.data as string;
     result = result.split("\"itemSectionRenderer\":")[1];
-    result = result.split("\"videoRenderer\"");
+    result = result.split("\"videoRenderer\"")[1];
 
     /*
     for (let i = 1; i < result.length; i++) {
@@ -425,7 +432,6 @@ async function getYoutubeSearchInfo(req, res) {
         if (i == 2) break;
     }
     */
-    result = result[1];
     if (result.indexOf("\"videoId\":\"") == -1) {
         res.send("영상이 없습니다");
         return;
@@ -442,7 +448,7 @@ async function getYoutubeSearchInfo(req, res) {
 
 
 async function connectServer() {
-    connection = await mysql.createConnection({
+    connection = await createConnection({
         host: process.env.DB_HOST, // 'localhost',
         port: 3306,
         user: 'root',
