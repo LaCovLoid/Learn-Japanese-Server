@@ -14,6 +14,6 @@
     "sucrase": "^3.31.0"
   },
   "scripts": {
-    "start": "npm run sucrase ./src -d ./dist --transforms typescript,imports && node ./dist/index.ts"
+    "start": "npm run sucrase ./src -d ./dist --transforms typescript,imports && node ./dist/index.js"
   }
 }
