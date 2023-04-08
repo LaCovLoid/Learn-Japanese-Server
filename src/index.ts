@@ -3,6 +3,9 @@ import { createConnection } from 'mysql2/promise';
 import axios from 'axios';
 import cors from 'cors';
 
+import dotenv from "dotenv"
+
+
 const SEARCH_TYPE_ALL = "0";
 const SEARCH_TYPE_TITLE = "1";
 const SEARCH_TYPE_SINGER = "2";
@@ -16,6 +19,7 @@ const app = express();
 const port = 3000;
 let connection: any;
 
+dotenv.config();
 connectServer();
 
 app.use(cors());
@@ -26,8 +30,20 @@ app.listen(port, () => {
     console.log(`Example app listening on port ${port}`)
 });
 
+async function connectServer() {
+    console.log(process.env);
+    connection = await createConnection({
+        host: process.env.DB_HOST, // 'localhost',
+        port: 3306,
+        user: "root",
+        password: "root",
+        database: "karaoke"
+    });
+    console.log("connection successful?", connection != null);
+}
+
 app.get('/number/:keyword', numberHandler);
-async function numberHandler(req, res) {
+async function numberHandler(req: any, res: any) {
     if (connection == null) return;
 
     let keyword: string = req.params.keyword;
@@ -39,7 +55,7 @@ async function numberHandler(req, res) {
 }
 
 app.get('/search/:keyword', searchHandler);
-async function searchHandler(req, res) {
+async function searchHandler(req: any, res: any) {
     if (connection == null) return;
 
     let keyword: string = req.params.keyword;
@@ -48,9 +64,7 @@ async function searchHandler(req, res) {
     let strType: string = req.query.str_type;   // 검색종류 
     let natType: string = req.query.nat_type;   // 국가별
     let page: string = req.query.page;          // 페이지
-    if (isNaN(Number(page))) return;
 
-    // null,0=한번에 1=제목 2=가수 4=작사가 8=작곡가 16=곡번호 32=가사 그외엔 전체검색으로
     if (!strType) { res.status(400).send("failed"); return; }
     strType = strType.toLowerCase();
     if (!(strType == "all" || strType == "title" || strType == "singer" || strType == "writer" || strType == "maker" || strType == "number" || strType == "lyrics")) { res.status(400).send("failed"); return; }
@@ -74,14 +88,18 @@ async function searchHandler(req, res) {
 
     // KOR ENG JPN CHN PHL INS 그 외 전체
     // 링크를 넣을 땐 대문자만 인식하며 대문자치환을 해줘야함
-    if (!natType) { res.status(400).send("failed"); return; }
+    if (!natType) {
+        res.status(400).send("failed"); return;
+    }
     natType = natType.toLowerCase();
     if (!(natType == "all" || natType == "kor" || natType == "eng" || natType == "jpn" || natType == "chn" || natType == "phl" || natType == "ins")) { res.status(400).send("failed"); return; }
     natType = natType.toUpperCase();
 
 
+    /////////////////////////////////////////////////////////
     //전체를 검색했을땐 page가 없기에 1로 설정
     if (!page) page = "1";
+    if (isNaN(Number(page))) { res.status(400).send("failed"); return; }
     if (isNaN(Number(page)) || Number(page) <= 0) { res.status(400).send("failed"); return; }
 
     let [queryResult] = await connection.query("SELECT `keywords`.`date`,`keywords`.`number`,`keywords`.`str_type`,`keywords`.`nat_type`,`keywords`.`page`,`keywords`.`class`,`keywords`.`date`,`songs`.`title`,`songs`.`singer`,`songs`.`writer`,`songs`.`maker` FROM `keywords`" +
@@ -211,9 +229,6 @@ async function search(keyword: string, natType: string, strType: number, page: n
     return searchResult;
 }
 
-
-//왜인지 계속 두번 실행 될 때가 있음 ????????????????????????????????????????????????
-// TODO: 
 async function increaseCount(keyword: string) {
     if (connection == null) return;
 
@@ -227,6 +242,7 @@ async function increaseCount(keyword: string) {
     let [popular_keywords] = await connection.query("SELECT * FROM `popular_keywords` WHERE keyword=?", [keyword]);
 
     //update_date를 통해 1분내로 같은걸 검색할 시 안올리게 하는 방법도 가능
+    //넣기로
     if (popular_keywords.length == 0) {
         await connection.query("INSERT INTO `popular_keywords`(`keyword`, `count`) VALUES (?,?)", [keyword, '1']);
     } else {
@@ -236,11 +252,13 @@ async function increaseCount(keyword: string) {
 
 
 app.get('/song/:number', songDetailHandler);
-async function songDetailHandler(req, res) {
+async function songDetailHandler(req: any, res: any) {
     if (connection == null) return;
 
     let number = req.params.number;
-    if (number == null) return;
+    if (number == null || isNaN(number)) res.status(400).send("failed");;
+    //////////////////번호가 없을 경우 크롤링해서 가져올것
+    //프론트 고치고 끝내기
 
     let [result] = await connection.query("SELECT * FROM `songs` WHERE `number`=?", [number]);
     if (result.length == 0) {
@@ -248,12 +266,24 @@ async function songDetailHandler(req, res) {
         return;
     }
 
-    res.send({ array: getSongInfo(result[0]) });
+    let keyword = result[0].title + " " + result[0].singer;
+    if (result[0].lyrics == null) {
+        let lyrics = await getLyrics(keyword);
+        result[0].lyrics = lyrics;
+        await connection.query("UPDATE `songs` SET `lyrics`=? WHERE `number`=?", [lyrics, number]);
+    }
+    if (result[0].youtube_id == null) {
+        let youtubeId = await getYoutubeId(keyword);
+        result[0].yotube_id = youtubeId;
+        await connection.query("UPDATE `songs` SET `youtube_id`=? WHERE `number`=?", [youtubeId, number]);
+    }
+
+    res.send({ song: getSongInfo(result[0]) });
 }
 
 
 app.get('/new', newSongHandler);
-async function newSongHandler(req, res) {
+async function newSongHandler(req: any, res: any) {
     if (connection == null) return;
     let nowDate = new Date();
     let [queryResult] = await connection.query("SELECT * FROM `new_songs`");
@@ -296,7 +326,7 @@ async function newSongHandler(req, res) {
 
 
 app.get('/popular/song', popularSongHandler);
-async function popularSongHandler(req, res) {
+async function popularSongHandler(req: any, res: any) {
     if (connection == null) return;
     let nowDate = new Date();
     let [queryResult] = await connection.query("SELECT * FROM `popular_songs` ORDER BY `rank` ASC");
@@ -337,7 +367,7 @@ async function popularSongHandler(req, res) {
 
 
 app.get('/popular/keyword', popularKeywordHandler);
-async function popularKeywordHandler(req, res) {
+async function popularKeywordHandler(req: any, res: any) {
     if (connection == null) return;
 
     let [popular_keywords] = await connection.query("SELECT * FROM `popular_keywords` ORDER BY `count` DESC  LIMIT 10");
@@ -352,74 +382,46 @@ async function popularKeywordHandler(req, res) {
 }
 
 
-app.get('/lyrics/:keyword', lyricsHandler);
+async function getLyrics(keyword: string): Promise<string> {
 
-async function lyricsHandler(req, res) {
-    if (connection == null) return;
-
-    let keyword = req.params.keyword;
-    if (keyword == null) { res.status(400).send("failed"); return; }
-
-    let [keywordQuery] = await connection.query("SELECT `number` FROM `lyrics_keywords` WHERE `keyword`=?", [keyword]);
+    let lyrics: string;
     let number: string;
-    if (keywordQuery.length == 0) {
 
-        let melon = await axios.get("https://www.melon.com/search/total/index.htm?q=" + keyword + "&section=&searchGnbYn=Y&kkoSpl=Y&kkoDpType=&mwkLogType=T");
-        if (!melon) return;
-        let melonSearch = melon.data as string;
+    let melon = await axios.get("https://www.melon.com/search/total/index.htm?q=" + keyword + "&section=&searchGnbYn=Y&kkoSpl=Y&kkoDpType=&mwkLogType=T");
+    if (!melon) return "검색 결과가 없습니다";
 
-        if (melonSearch.indexOf("<!-- 검색 결과 없음 -->") != -1) {
-            await connection.query("INSERT INTO `lyrics_keywords`(`keyword`,`number`) VALUES (?,?)", [keyword, 0]);
-            res.send({ error: "검색 결과가 없습니다." });
-            return;
-        } else if (melonSearch.indexOf("tbody") != -1) {
-            number = melonSearch.split("tbody")[1].split("value=\"")[1].split("\"")[0];
-            await connection.query("INSERT INTO `lyrics_keywords`(`keyword`,`number`) VALUES (?,?)", [keyword, number]);
-        } else if (melonSearch.indexOf("data-song-no=\"") != -1) {
-            number = melonSearch.split("data-song-no=\"")[1].split("\"")[0];
-            await connection.query("INSERT INTO `lyrics_keywords`(`keyword`,`number`) VALUES (?,?)", [keyword, number]);
-        } else {
-            await connection.query("INSERT INTO `lyrics_keywords`(`keyword`,`number`) VALUES (?,?)", [keyword, 0]);
-            res.send({ error: "검색 결과가 없습니다." });
-            return;
-        }
+    let melonSearch = melon.data as string;
+    if (melonSearch.indexOf("<!-- 검색 결과 없음 -->") != -1) {
+        return "검색 결과가 없습니다.";
+    } else if (melonSearch.indexOf("tbody") != -1) {
+        number = melonSearch.split("tbody")[1].split("value=\"")[1].split("\"")[0];
+    } else if (melonSearch.indexOf("data-song-no=\"") != -1) {
+        number = melonSearch.split("data-song-no=\"")[1].split("\"")[0];
     } else {
-        number = keywordQuery[0].number;
+        return "검색 결과가 없습니다.";
     }
 
-
-    let [lyricsQuery] = await connection.query("SELECT `lyrics` FROM `lyrics` WHERE `number`=?", [number]);
-    let lyrics;
-
-    if (isNaN(Number(number))) return;
-
-
+    if (isNaN(Number(number))) return "검색 결과가 없습니다";
     if (Number(number) == 0) {
-        lyrics = "검색 결과가 없습니다."
-    } else if (lyricsQuery.length == 0) {
-        let lyricsSearch = await axios.get("https://www.melon.com/song/detail.htm?songId=" + number);
-        lyrics = lyricsSearch.data.split("<!-- 가사 -->")[1].split("<!-- //가사 -->")[0];
-
-        if (lyrics.indexOf('none') == -1) {
-            lyrics = lyrics.split("확장됨 -->")[1].split("</div>")[0].trim();
-        } else {
-            lyrics = "가사가 아직 없습니다";
-        }
-        await connection.query("INSERT INTO `lyrics`(`lyrics`,`number`) VALUES (?,?)", [lyrics, number]);
-    } else {
-        lyrics = lyricsQuery[0].lyrics;
+        return "검색 결과가 없습니다.";
     }
-    res.send({ lyrics: lyrics });
+
+    let lyricsSearch = await axios.get("https://www.melon.com/song/detail.htm?songId=" + number);
+    if (!lyricsSearch || !lyricsSearch.data) return "곡 정보가 없습니다";
+
+    lyrics = lyricsSearch.data.split("<!-- 가사 -->")[1].split("<!-- //가사 -->")[0];
+    if (lyrics.indexOf('none') != -1) return "가사가 아직 없습니다";
+
+    lyrics = lyrics.split("확장됨 -->")[1].split("</div>")[0].trim();
+    return lyrics;
 
 }
 
 
 
-app.get('/youtube/:keyword', getYoutubeSearchInfo);
-async function getYoutubeSearchInfo(req, res) {
-    let searchKeyword: string = req.params.keyword;
-    let response: any = await axios.get("https://www.youtube.com/results?search_query=" + searchKeyword);
-    if (response == null || response.data == null) return;
+async function getYoutubeId(keyword: string): Promise<string> {
+    let response: any = await axios.get("https://www.youtube.com/results?search_query=" + keyword);
+    if (response == null || response.data == null) return "";
 
     let result: string = response.data as string;
     result = result.split("\"itemSectionRenderer\":")[1];
@@ -435,33 +437,14 @@ async function getYoutubeSearchInfo(req, res) {
     }
     */
     if (result.indexOf("\"videoId\":\"") == -1) {
-        res.send("영상이 없습니다");
-        return;
+        return "none";
     }
     result = result.split("\"videoId\":\"")[1].split("\"")[0];
 
-    res.send({ youtubeId: result });
+    return result;
 }
 
-
-
-//////////////////////////////////////////////////////////////////////////////
-
-
-
-async function connectServer() {
-    connection = await createConnection({
-        host: process.env.DB_HOST, // 'localhost',
-        port: 3306,
-        user: 'root',
-        password: 'root',
-        database: 'karaoke'
-    });
-    console.log("connection successful?", connection != null);
-}
-
-
-function getSongInfo(data) {
+function getSongInfo(data: any) {
     return {
         number: data.number,
         title: data.title,
@@ -469,6 +452,7 @@ function getSongInfo(data) {
         writer: data.writer,
         maker: data.maker,
         lyrics: data.lyrics,
+        youtubeId: data.youtube_id,
         rank: data.rank,
     }
 }
