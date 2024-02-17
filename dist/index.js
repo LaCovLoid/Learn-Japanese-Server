@@ -5,7 +5,6 @@ var _cors = require('cors'); var _cors2 = _interopRequireDefault(_cors);
 
 var _dotenv = require('dotenv'); var _dotenv2 = _interopRequireDefault(_dotenv);
 
-
 const app = _express2.default.call(void 0, );
 const port = 3000;
 let connection;
@@ -32,12 +31,30 @@ async function connectServer() {
     console.log("connection successful?", connection != null);
 }
 
+var _nodefs = require('node:fs'); var _nodefs2 = _interopRequireDefault(_nodefs);
+
 app.get('/japanese', searchHandler);
 async function searchHandler(req, res) {
     if (connection == null) return;
     
+    
+    _nodefs2.default.readFile('./src/jp_word.txt', 'utf8', (err, data) => {
+        if (err) {
+            console.error(err);
+            return;
+        }
+        const lines = data.split('\r\n');
+        let text = "";
+        for (let i in lines) {
+            text += lines[i].trim()+"\r\n";
+        }
 
-    res.send("aaa");
+        _nodefs2.default.writeFileSync('./src/jp_word2.txt', text);
+
+        res.send ({aaa:text.trim()});
+        return;
+    });
+
 }
 
 

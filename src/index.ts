@@ -5,7 +5,6 @@ import cors from 'cors';
 
 import dotenv from "dotenv"
 
-
 const app = express();
 const port = 3000;
 let connection: any;
@@ -32,12 +31,30 @@ async function connectServer() {
     console.log("connection successful?", connection != null);
 }
 
+import fs from 'node:fs';
+
 app.get('/japanese', searchHandler);
 async function searchHandler(req: any, res: any) {
     if (connection == null) return;
     
+    
+    fs.readFile('./src/jp_word.txt', 'utf8', (err, data) => {
+        if (err) {
+            console.error(err);
+            return;
+        }
+        const lines = data.split('\r\n');
+        let text = "";
+        for (let i in lines) {
+            text += lines[i].trim()+"\r\n";
+        }
 
-    res.send("aaa");
+        fs.writeFileSync('./src/jp_word2.txt', text);
+
+        res.send ({aaa:text.trim()});
+        return;
+    });
+
 }
 
 
