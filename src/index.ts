@@ -31,12 +31,14 @@ async function connectServer() {
     console.log("connection successful?", connection != null);
 }
 
+
+/* //단어 db 정제를 위한 임시 코드
+
 import fs from 'node:fs';
 
-app.get('/japanese', searchHandler);
-async function searchHandler(req: any, res: any) {
+app.get('/japanese', sortHandler);
+async function sortHandler(req: any, res: any) {
     if (connection == null) return;
-    
     
     fs.readFile('./src/jp_word.txt', 'utf8', (err, data) => {
         if (err) {
@@ -45,16 +47,55 @@ async function searchHandler(req: any, res: any) {
         }
         const lines = data.split('\r\n');
         let text = "";
+        let secondText:string[] = [];
+        let lineCount = 0;
         for (let i in lines) {
-            text += lines[i].trim()+"\r\n";
+            lines[i] = lines[i].trim();
+            if (lines[i].includes("^")){
+                secondText.push(lines[i].split("^")[1]);
+                lines[i] = lines[i].split("^")[0];
+            }
+            text += lines[i]+"\r\n";
         }
 
-        fs.writeFileSync('./src/jp_word2.txt', text);
+        text = text + "\r\n";
+        for (let i in secondText) {
+            text += secondText[i] +'\r\n';
 
-        res.send ({aaa:text.trim()});
+            lineCount++;
+            if (lineCount == 3) {
+                text += '\r\n';
+                lineCount = 0;
+            }
+        }
+        fs.writeFileSync('./src/jp_word2.txt', text);
+        res.send ({file:text});
+        return;
+    });
+
+}
+*/
+
+import fs from 'node:fs';
+app.get('/japanese', insertSqlHandler);
+async function insertSqlHandler(req: any, res: any) {
+    if (connection == null) return;
+    
+    fs.readFile('./src/words.txt', 'utf8', (err, data) => {
+        if (err) {
+            console.error(err);
+            return;
+        }
+        const lines = data.split('\r\n');
+
+        res.send ();
         return;
     });
 
 }
 
-
+app.get('/test', testHandler);
+async function testHandler(req: any, res: any) {
+    if (connection == null) return;
+    res.send("test");
+}
