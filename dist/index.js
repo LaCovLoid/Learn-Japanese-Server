@@ -26,7 +26,7 @@ async function connectServer() {
         port: 3306,
         user: "root",
         password: "root",
-        database: "karaoke"
+        database: "japanese_db"
     });
     console.log("connection successful?", connection != null);
 }
@@ -81,21 +81,60 @@ app.get('/japanese', insertSqlHandler);
 async function insertSqlHandler(req, res) {
     if (connection == null) return;
     
-    _nodefs2.default.readFile('./src/words.txt', 'utf8', (err, data) => {
+    _nodefs2.default.readFile('./src/words.txt', 'utf8', async (err, data) => {
         if (err) {
             console.error(err);
             return;
         }
-        const lines = data.split('\r\n');
+        const lines = data.split('\r\n\r\n');
 
-        res.send ();
+        let word = "";
+        let mean = "";
+        let yomigana = "";
+        let example_word = "";
+        let example_mean = "";
+        for (let i = 0; i < lines.length; i++) {
+            if (lines[i].includes('[')){
+                const firstLine = lines[i].split('\r\n')[0];
+                example_word += lines[i].split('\r\n')[1];
+                example_mean += lines[i].split('\r\n')[2];
+
+                word += firstLine.split(' ')[0];
+                for (let j = 2; j < firstLine.split(' ').length; j++){
+                    mean += firstLine.split(' ')[j]+' ';
+                }
+                mean = mean.trim();
+                yomigana += String(firstLine.split(' ')[1]).replace('\[','').replace('\]','');
+
+            } else {
+
+            }
+            //await connection.query("INSERT INTO `words`(`word`, `mean`,`yomigana`,`word_yomi_same`,`example_word`,`example_mean`) VALUES (?,?,?,?,?,?)", [,,,,,]);
+        }
+
+        for (let i in lines) {
+            if(!lines[i].includes("[")){
+            }
+        }
+
+        //await connection.query("INSERT INTO `words`(`number`, `title`,`singer`,`writer`,`maker`) VALUES (?,?,?,?,?)", [,]);
+        res.send ({word:word , mean:mean, yomigana:yomigana});
         return;
     });
 
 }
 
+function katakanaToHiragana(katakana) {
+    // 가타카나와 히라가나의 유니코드 범위를 이용하여 변환
+    return katakana.replace(/[\u30A1-\u30F6]/g, function(match) {
+    return String.fromCharCode(match.charCodeAt(0) - 0x60);
+    });
+}
+
+
 app.get('/test', testHandler);
 async function testHandler(req, res) {
     if (connection == null) return;
+    await connection.query("INSERT INTO `users`(`user_id`, `password`,`resolve`) VALUES (?,?,?)", ["ididid","pass123","12a/2c/14b/2b"]);
     res.send("test");
 }
