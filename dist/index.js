@@ -93,48 +93,56 @@ async function insertSqlHandler(req, res) {
         let yomigana = "";
         let example_word = "";
         let example_mean = "";
+        let yomi_word_same = false;
+        let mean_locate = 0;
+
         for (let i = 0; i < lines.length; i++) {
+            const firstLine = lines[i].split('\r\n')[0];
+            example_word = lines[i].split('\r\n')[1];
+            example_mean = lines[i].split('\r\n')[2];
+            word = firstLine.split(' ')[0];
+
             if (lines[i].includes('[')){
-                const firstLine = lines[i].split('\r\n')[0];
-                example_word += lines[i].split('\r\n')[1];
-                example_mean += lines[i].split('\r\n')[2];
-
-                word += firstLine.split(' ')[0];
-                for (let j = 2; j < firstLine.split(' ').length; j++){
-                    mean += firstLine.split(' ')[j]+' ';
-                }
-                mean = mean.trim();
-                yomigana += String(firstLine.split(' ')[1]).replace('\[','').replace('\]','');
-
+                yomi_word_same = false;
+                mean_locate = 2;
+                yomigana = String(firstLine.split(' ')[1]).replace('\[','').replace('\]','');
             } else {
-
+                yomi_word_same = true;
+                mean_locate = 1;
+                yomigana = word;
             }
-            //await connection.query("INSERT INTO `words`(`word`, `mean`,`yomigana`,`word_yomi_same`,`example_word`,`example_mean`) VALUES (?,?,?,?,?,?)", [,,,,,]);
+            
+            for (let j = mean_locate; j < firstLine.split(' ').length; j++){
+                mean += firstLine.split(' ')[j]+' ';
+            }
+
+            yomigana = katakanaToHiragana(yomigana);
+            mean = mean.trim();
+
+            await connection.query("INSERT INTO `words`(`word`, `mean`,`yomigana`,`yomi_word_same`,`example_word`,`example_mean`) VALUES (?,?,?,?,?,?)", [word,mean,yomigana,yomi_word_same,example_word,example_mean]);
+            mean = "";
         }
 
-        for (let i in lines) {
-            if(!lines[i].includes("[")){
-            }
-        }
-
-        //await connection.query("INSERT INTO `words`(`number`, `title`,`singer`,`writer`,`maker`) VALUES (?,?,?,?,?)", [,]);
-        res.send ({word:word , mean:mean, yomigana:yomigana});
+        res.send ("successed");
         return;
     });
 
 }
 
-function katakanaToHiragana(katakana) {
-    // 가타카나와 히라가나의 유니코드 범위를 이용하여 변환
-    return katakana.replace(/[\u30A1-\u30F6]/g, function(match) {
-    return String.fromCharCode(match.charCodeAt(0) - 0x60);
-    });
-}
-
-
 app.get('/test', testHandler);
 async function testHandler(req, res) {
     if (connection == null) return;
-    await connection.query("INSERT INTO `users`(`user_id`, `password`,`resolve`) VALUES (?,?,?)", ["ididid","pass123","12a/2c/14b/2b"]);
-    res.send("test");
+
+    const texttt1 = "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをんアイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン";
+    const texttt2 = katakanaToHiragana(texttt1);
+    //await connection.query("INSERT INTO `users`(`user_id`, `password`,`resolve`) VALUES (?,?,?)", ["ididid","pass123","12a/2c/14b/2b"]);
+    res.send({texttt2});
+}
+
+
+
+function katakanaToHiragana(word) {                              //왜 반복되지? replace덕에 모든 값들 하나하나씩 반복됨
+    return word.replace(/[\u30A1-\u30F6]/g, function(katakana) {        //ア부터 ン까지의 유니코드값을 정규식으로 찾아낸 후에 
+    return String.fromCharCode(katakana.charCodeAt(0) - 0x60);          //히라가나와 가타카나의 유니코드 차만큼 값 뺌 /chatAt(n) n번째의글자갖고옴 /fromCharCode 유니코드를 문자로 반환
+    });
 }
