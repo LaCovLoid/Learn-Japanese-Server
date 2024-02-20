@@ -23,10 +23,10 @@ app.listen(port, () => {
 async function connectServer() {
     connection = await _promise.createConnection.call(void 0, {
         host: process.env.DB_HOST, // 'localhost',
-        port: 3306,
-        user: "root",
-        password: "root",
-        database: "japanese_db"
+        port: Number(process.env.DB_PORT),
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        database: process.env.DB_NAME
     });
     console.log("connection successful?", connection != null);
 }
@@ -75,26 +75,26 @@ async function sortHandler(req: any, res: any) {
 
 }
 */
-
-var _nodefs = require('node:fs'); var _nodefs2 = _interopRequireDefault(_nodefs);
+/*
+import fs from 'node:fs';
 app.get('/japanese', insertSqlHandler);
-async function insertSqlHandler(req, res) {
+async function insertSqlHandler(req: any, res: any) {
     if (connection == null) return;
     
-    _nodefs2.default.readFile('./src/words.txt', 'utf8', async (err, data) => {
+    fs.readFile('./src/words.txt', 'utf8', async (err, data) => {
         if (err) {
             console.error(err);
             return;
         }
         const lines = data.split('\r\n\r\n');
 
-        let word = "";
-        let mean = "";
-        let yomigana = "";
-        let example_word = "";
-        let example_mean = "";
-        let yomi_word_same = false;
-        let mean_locate = 0;
+        let word:string = "";
+        let mean:string = "";
+        let yomigana:string = "";
+        let example_word:string = "";
+        let example_mean:string = "";
+        let yomi_word_same:boolean = false;
+        let mean_locate:number = 0;
 
         for (let i = 0; i < lines.length; i++) {
             const firstLine = lines[i].split('\r\n')[0];
@@ -122,27 +122,48 @@ async function insertSqlHandler(req, res) {
             await connection.query("INSERT INTO `words`(`word`, `mean`,`yomigana`,`yomi_word_same`,`example_word`,`example_mean`) VALUES (?,?,?,?,?,?)", [word,mean,yomigana,yomi_word_same,example_word,example_mean]);
             mean = "";
         }
-
         res.send ("successed");
         return;
     });
-
 }
+
+function katakanaToHiragana(word:string) {                              //왜 반복되지? replace덕에 모든 값들 하나하나씩 반복됨
+    return word.replace(/[\u30A1-\u30F6]/g, function(katakana) {        //ア부터 ン까지의 유니코드값을 정규식으로 찾아낸 후에 
+    return String.fromCharCode(katakana.charCodeAt(0) - 0x60);          //히라가나와 가타카나의 유니코드 차만큼 값 뺌 /chatAt(n) n번째의글자갖고옴 /fromCharCode 유니코드를 문자로 반환
+    });
+}
+*/
 
 app.get('/test', testHandler);
 async function testHandler(req, res) {
     if (connection == null) return;
-
-    const texttt1 = "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをんアイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン";
-    const texttt2 = katakanaToHiragana(texttt1);
-    //await connection.query("INSERT INTO `users`(`user_id`, `password`,`resolve`) VALUES (?,?,?)", ["ididid","pass123","12a/2c/14b/2b"]);
-    res.send({texttt2});
+    
+    let [result] = await connection.query("SELECT * FROM `words` WHERE `yomi_word_same`='1'");
+    result = getList(result);
+    res.send({test:result});
 }
 
+app.get('/random', randomHandler);
+async function randomHandler(req, res) {
+    if (connection == null) return;
+    
+    let [result] = await connection.query("SELECT * FROM `words` WHERE `yomi_word_same`='0' Order by rand() Limit 1");
+    result = getList(result);
+    res.send({result:result});
+}
 
-
-function katakanaToHiragana(word) {                              //왜 반복되지? replace덕에 모든 값들 하나하나씩 반복됨
-    return word.replace(/[\u30A1-\u30F6]/g, function(katakana) {        //ア부터 ン까지의 유니코드값을 정규식으로 찾아낸 후에 
-    return String.fromCharCode(katakana.charCodeAt(0) - 0x60);          //히라가나와 가타카나의 유니코드 차만큼 값 뺌 /chatAt(n) n번째의글자갖고옴 /fromCharCode 유니코드를 문자로 반환
-    });
+function getList(data){
+    let list = [];
+    for(let i = 0; i < data.length; i++) {
+        list.push ({
+            id : data[i].id,
+            word : data[i].word,
+            mean : data[i].mean,
+            yomigana : data[i].yomigana,
+            example_word : data[i].example_word,
+            example_mean : data[i].example_mean,
+            yomi_word_same : data[i].yomi_word_same,
+        });
+    }
+    return list;
 }
