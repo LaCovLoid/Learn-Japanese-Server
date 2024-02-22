@@ -1,13 +1,14 @@
-import express, { json, urlencoded } from 'express';
+import express, { json, request, urlencoded } from 'express';
 import { createConnection } from 'mysql2/promise';
+import dotenv from "dotenv";
+import crypto from 'crypto';
 import axios from 'axios';
 import cors from 'cors';
-
-import dotenv from "dotenv"
 
 const app = express();
 const port = 3000;
 let connection: any;
+
 
 dotenv.config();
 connectServer();
@@ -143,6 +144,7 @@ async function testHandler(req: any, res: any) {
     res.send({wordList:filtered});
 }
 
+
 app.get('/random', randomHandler);
 async function randomHandler(req: any, res: any) {
     if (connection == null) return;
@@ -153,6 +155,66 @@ async function randomHandler(req: any, res: any) {
 }
 
 
+app.post('/login', loginHandler);
+async function loginHandler(req: any, res:any) {
+    let id = req.body.id._value;
+    let password = req.body.password._value;
+    if (id == null || password == null || id == "" || password == "") {
+        res.status(400).send({ success: false, });
+        return;
+    }
+    password = sha512Hash(password);
+    console.log(id,password);
+
+    let [user] = await connection.query("SELECT `id` FROM `users` WHERE `user_id`=? AND `password`=?", [id, password]);
+    if (user.length <= 0) {
+        res.status(400).send({ success: false, });
+        return;
+    }
+
+    let hashToken = sha512Hash(id + password + new Date());
+    await connection.query("INSERT INTO `tokens`(`token`,`user_index`)VALUES(?,?)", [hashToken, user[0].id]);
+
+    res.send(hashToken);
+}
+//토큰 시간 지나면 강제 로그아웃하게 하기
+//토큰 갱신할때 처음거랑 하루 이상 차이날시 전부 삭제후 발급
+
+//풀었던 문제 리스트 보낼 때 >> 토큰에서 유저인덱스 유니온 users 푼 문제 리스트
+//그럼 푼 문제를 한번에 줄 게 아니라 나눠서 db에 저장해야하나? 
+// 아냐, 한번에 받은 다음 탭할때마다 전송하는게 좋을거같아
+//그럼 서버에서는... 여러개받아서 스플리트 해서 or조건으로 전부 반환하면 됨
+//문제는 한 단어의 여러종류를 풀었을때..인데
+// 차피 or문 들어가면 똑같잖아? 그냥 다 넣어서 하면 될 듯
+
+app.post('/regist', registHandler);
+async function registHandler(req: any, res: any) {
+    if (connection == null) return;
+
+    let id = req.body.id._value;
+    let password = req.body.password._value;
+
+    if (id == null || password == null || id == "" || password == "") {
+        res.status(400).send({ success: false,reason:"" });
+        return;
+    }
+    password = sha512Hash(password);
+
+    let [check] = await connection.query("SELECT * FROM `users` WHERE `user_id`=?", [id]);
+    if (check.length > 0) {
+        res.status(400).send({ success: false, });
+        return;
+    }
+
+    try {
+        await connection.query("INSERT INTO `users`(`user_id`,`password`) VALUES(?,?)", [id, password]);
+    } catch {
+        res.status(400).send({ success: false, });
+        return;
+    }
+
+    res.send({ success: true, });
+}
 
 function getList(data:any):any{
     let list:any[] = [];
@@ -168,4 +230,8 @@ function getList(data:any):any{
         });
     }
     return list;
+}
+
+function sha512Hash(str:string):string {
+    return crypto.createHash('sha512').update(str).digest('hex');
 }

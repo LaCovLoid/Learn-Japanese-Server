@@ -1,13 +1,14 @@
 "use strict"; function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }var _express = require('express'); var _express2 = _interopRequireDefault(_express);
 var _promise = require('mysql2/promise');
+var _dotenv = require('dotenv'); var _dotenv2 = _interopRequireDefault(_dotenv);
+var _crypto = require('crypto'); var _crypto2 = _interopRequireDefault(_crypto);
 
 var _cors = require('cors'); var _cors2 = _interopRequireDefault(_cors);
-
-var _dotenv = require('dotenv'); var _dotenv2 = _interopRequireDefault(_dotenv);
 
 const app = _express2.default.call(void 0, );
 const port = 3000;
 let connection;
+
 
 _dotenv2.default.config();
 connectServer();
@@ -139,17 +140,71 @@ async function testHandler(req, res) {
     if (connection == null) return;
     
     let [result] = await connection.query("SELECT * FROM `words` WHERE `yomi_word_same`='1'");
-    result = getList(result);
-    res.send({test:result});
+    let filtered = getList(result);
+    res.send({wordList:filtered});
 }
+
 
 app.get('/random', randomHandler);
 async function randomHandler(req, res) {
     if (connection == null) return;
     
     let [result] = await connection.query("SELECT * FROM `words` WHERE `yomi_word_same`='0' Order by rand() Limit 1");
-    result = getList(result);
-    res.send({result:result});
+    let filtered = getList(result);
+    res.send({wordList:filtered});
+}
+
+
+app.post('/login', loginHandler);
+async function loginHandler(req, res) {
+    let id = req.body.id._value;
+    let password = req.body.password._value;
+    if (id == null || password == null || id == "" || password == "") {
+        res.status(400).send({ success: false, });
+        return;
+    }
+    password = sha512Hash(password);
+    console.log(id,password);
+
+    let [user] = await connection.query("SELECT `id` FROM `users` WHERE `user_id`=? AND `password`=?", [id, password]);
+    if (user.length <= 0) {
+        res.status(400).send({ success: false, });
+        return;
+    }
+
+    let hashToken = sha512Hash(id + password + new Date());
+    await connection.query("INSERT INTO `tokens`(`token`,`user_index`)VALUES(?,?)", [hashToken, user[0].id]);
+
+    res.send(hashToken);
+}
+
+app.post('/regist', registHandler);
+async function registHandler(req, res) {
+    if (connection == null) return;
+
+    let id = req.body.id._value;
+    let password = req.body.password._value;
+
+    if (id == null || password == null || id == "" || password == "") {
+        res.status(400).send({ success: false,reason:"" });
+        return;
+    }
+    password = sha512Hash(password);
+
+    let [check] = await connection.query("SELECT * FROM `users` WHERE `user_id`=?", [id]);
+    if (check.length > 0) {
+        res.status(400).send({ success: false, });
+        return;
+    }
+
+    try {
+        await connection.query("INSERT INTO `users`(`user_id`,`password`) VALUES(?,?)", [id, password]);
+    } catch (e) {
+        res.status(400).send({ success: false, });
+        return;
+    }
+
+    res.send({ success: true, });
 }
 
 function getList(data){
@@ -166,4 +221,8 @@ function getList(data){
         });
     }
     return list;
+}
+
+function sha512Hash(str) {
+    return _crypto2.default.createHash('sha512').update(str).digest('hex');
 }
