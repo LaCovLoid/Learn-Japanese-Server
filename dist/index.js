@@ -140,8 +140,7 @@ async function testHandler(req, res) {
     if (connection == null) return;
     
     let [result] = await connection.query("SELECT * FROM `words` WHERE `yomi_word_same`='1'");
-    let filtered = getList(result);
-    res.send({wordList:filtered});
+    res.send(getList(result));
 }
 
 
@@ -150,9 +149,62 @@ async function randomHandler(req, res) {
     if (connection == null) return;
     
     let [result] = await connection.query("SELECT * FROM `words` WHERE `yomi_word_same`='0' Order by rand() Limit 1");
-    let filtered = getList(result);
-    res.send({wordList:filtered});
+    res.send(getList(result));
 }
+
+app.get('/user_info', userInfoHandler);
+async function userInfoHandler(req, res) {
+    if (connection == null) return;
+    
+    let accessToken = req.headers["access-token"];
+    let [tokenUserId] = await connection.query("SELECT `user_id` FROM `tokens` WHERE `token`=?", [accessToken]);
+
+    if (tokenUserId.length == 0){
+        res.status(400).send({reaseon:"token not found"});
+        return;
+    }
+
+    let [userId] = await connection.query("SELECT `resolve`,`favorite` FROM `users` WHERE `id`=?", [tokenUserId[0].user_id]);
+    if (userId.length == 0){
+        res.status(404).send({reason:"user not found"});
+        return;
+    }
+
+    let favorite = [];
+    let result = [];
+    let resolve = [];
+    let text = "";
+
+    if (userId[0].resolve != null){
+        resolve = userId[0].resolve.split("/");
+        for (let i = 0; i < resolve.length - 1; i++){
+            text += "`id`='" + resolve[i] + "' OR ";
+        }
+        text += "`id`='" + resolve[resolve.length - 1] + "'";
+    }
+    if (userId[0].favorite != null){
+        favorite = userId[0].favorite.split("/");
+    }
+    if (text !=""){
+        result =  await connection.query("SELECT * FROM `words` WHERE "+text);
+    }
+    console.log([getList(result[0]),favorite]);
+    res.send([getList(result[0]),favorite]);
+}
+
+
+
+//마이페이지이동 or 문제 제출때 토큰 시간 지나면 강제 로그아웃하게 하기
+//토큰 갱신할때 처음거랑 하루 이상 차이날시 전부 삭제후 발급
+
+//풀었던 문제 리스트 보낼 때 >> 토큰에서 유저인덱스 유니온 users 푼 문제 리스트
+//그럼 푼 문제를 한번에 줄 게 아니라 나눠서 db에 저장해야하나? 
+// 아냐, 한번에 받은 다음 탭할때마다 전송하는게 좋을거같아
+//그럼 서버에서는... 여러개받아서 스플리트 해서 or조건으로 전부 반환하면 됨
+//문제는 한 단어의 여러종류를 풀었을때..인데
+// 차피 or문 들어가면 똑같잖아? 그냥 다 넣어서 하면 될 듯
+
+
 
 
 app.post('/login', loginHandler);
@@ -160,20 +212,19 @@ async function loginHandler(req, res) {
     let id = req.body.id._value;
     let password = req.body.password._value;
     if (id == null || password == null || id == "" || password == "") {
-        res.status(400).send({ success: false, });
+        res.status(400).send({reason:"empty id or password" });
         return;
     }
     password = sha512Hash(password);
-    console.log(id,password);
 
     let [user] = await connection.query("SELECT `id` FROM `users` WHERE `user_id`=? AND `password`=?", [id, password]);
     if (user.length <= 0) {
-        res.status(400).send({ success: false, });
+        res.status(400).send({reason:"wrong id or password" });
         return;
     }
 
     let hashToken = sha512Hash(id + password + new Date());
-    await connection.query("INSERT INTO `tokens`(`token`,`user_index`)VALUES(?,?)", [hashToken, user[0].id]);
+    await connection.query("INSERT INTO `tokens`(`token`,`user_id`)VALUES(?,?)", [hashToken, user[0].id]);
 
     res.send(hashToken);
 }
@@ -185,27 +236,28 @@ async function registHandler(req, res) {
     let id = req.body.id._value;
     let password = req.body.password._value;
 
-    if (id == null || password == null || id == "" || password == "") {
-        res.status(400).send({ success: false,reason:"" });
+    if (id == null || password == null || id.trim() == "" || password.trim() == "") {
+        res.status(400).send({ reason:"empty id or password" });
         return;
     }
     password = sha512Hash(password);
 
     let [check] = await connection.query("SELECT * FROM `users` WHERE `user_id`=?", [id]);
     if (check.length > 0) {
-        res.status(400).send({ success: false, });
+        res.status(400).send({ reason:"already id as same is exist" });
         return;
     }
 
     try {
         await connection.query("INSERT INTO `users`(`user_id`,`password`) VALUES(?,?)", [id, password]);
     } catch (e) {
-        res.status(400).send({ success: false, });
+        res.status(400).send({ reason:"DB Error" });
         return;
     }
 
-    res.send({ success: true, });
+    res.send({ success: true });
 }
+
 
 function getList(data){
     let list = [];
