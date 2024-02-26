@@ -188,7 +188,6 @@ async function userInfoHandler(req, res) {
     if (text !=""){
         result =  await connection.query("SELECT * FROM `words` WHERE "+text);
     }
-    console.log([getList(result[0]),favorite]);
     res.send([getList(result[0]),favorite]);
 }
 
