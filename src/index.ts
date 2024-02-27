@@ -4,11 +4,11 @@ import dotenv from "dotenv";
 import crypto from 'crypto';
 import axios from 'axios';
 import cors from 'cors';
+import * as deepl from 'deepl-node';
 
 const app = express();
 const port = 3000;
 let connection: any;
-
 
 dotenv.config();
 connectServer();
@@ -32,124 +32,15 @@ async function connectServer() {
   console.log("connection successful?", connection != null);
 }
 
-
-/* //단어 db 정제를 위한 임시 코드
-
-import fs from 'node:fs';
-
-app.get('/japanese', sortHandler);
-async function sortHandler(req: any, res: any) {
-  if (connection == null) return;
-  
-  fs.readFile('./src/jp_word.txt', 'utf8', (err, data) => {
-    if (err) {
-      console.error(err);
-      return;
-    }
-    const lines = data.split('\r\n');
-    let text = "";
-    let secondText:string[] = [];
-    let lineCount = 0;
-    for (let i in lines) {
-      lines[i] = lines[i].trim();
-      if (lines[i].includes("^")){
-        secondText.push(lines[i].split("^")[1]);
-        lines[i] = lines[i].split("^")[0];
-      }
-      text += lines[i]+"\r\n";
-    }
-
-    text = text + "\r\n";
-    for (let i in secondText) {
-      text += secondText[i] +'\r\n';
-
-      lineCount++;
-      if (lineCount == 3) {
-        text += '\r\n';
-        lineCount = 0;
-      }
-    }
-    fs.writeFileSync('./src/jp_word2.txt', text);
-    res.send ({file:text});
-    return;
-  });
-
-}
-*/
-/*
-import fs from 'node:fs';
-app.get('/japanese', insertSqlHandler);
-async function insertSqlHandler(req: any, res: any) {
-  if (connection == null) return;
-  
-  fs.readFile('./src/words.txt', 'utf8', async (err, data) => {
-    if (err) {
-      console.error(err);
-      return;
-    }
-    const lines = data.split('\r\n\r\n');
-
-    let word:string = "";
-    let mean:string = "";
-    let yomigana:string = "";
-    let example_word:string = "";
-    let example_mean:string = "";
-    let yomi_word_same:boolean = false;
-    let mean_locate:number = 0;
-
-    for (let i = 0; i < lines.length; i++) {
-      const firstLine = lines[i].split('\r\n')[0];
-      example_word = lines[i].split('\r\n')[1];
-      example_mean = lines[i].split('\r\n')[2];
-      word = firstLine.split(' ')[0];
-
-      if (lines[i].includes('[')){
-        yomi_word_same = false;
-        mean_locate = 2;
-        yomigana = String(firstLine.split(' ')[1]).replace('\[','').replace('\]','');
-      } else {
-        yomi_word_same = true;
-        mean_locate = 1;
-        yomigana = word;
-      }
-      
-      for (let j = mean_locate; j < firstLine.split(' ').length; j++){
-        mean += firstLine.split(' ')[j]+' ';
-      }
-
-      yomigana = katakanaToHiragana(yomigana);
-      mean = mean.trim();
-
-      await connection.query("INSERT INTO `words`(`word`, `mean`,`yomigana`,`yomi_word_same`,`example_word`,`example_mean`) VALUES (?,?,?,?,?,?)", [word,mean,yomigana,yomi_word_same,example_word,example_mean]);
-      mean = "";
-    }
-    res.send ("successed");
-    return;
-  });
-}
-
-function katakanaToHiragana(word:string) {                              //왜 반복되지? replace덕에 모든 값들 하나하나씩 반복됨
-  return word.replace(/[\u30A1-\u30F6]/g, function(katakana) {        //ア부터 ン까지의 유니코드값을 정규식으로 찾아낸 후에 
-  return String.fromCharCode(katakana.charCodeAt(0) - 0x60);          //히라가나와 가타카나의 유니코드 차만큼 값 뺌 /chatAt(n) n번째의글자갖고옴 /fromCharCode 유니코드를 문자로 반환
-  });
-}
-*/
-
-app.get('/test', testHandler);
-async function testHandler(req: any, res: any) {
-  if (connection == null) return;
-  
-  let [result] = await connection.query("SELECT * FROM `words` WHERE `yomi_word_same`='1'");
-  res.send(getList(result));
-}
-
-
 app.get('/random', randomHandler);
 async function randomHandler(req: any, res: any) {
   if (connection == null) return;
   
   let [result] = await connection.query("SELECT * FROM `words` WHERE `yomi_word_same`='0' Order by rand() Limit 1");
-  res.send(getList(result));
+  if (result == null) {
+    res.status(404).send({reason:"DB Error"});
+  }
+  res.send({word_id:result[0].id, word:result[0].word, mean:result[0].mean, yomigana_length:result[0].yomigana.length});
 }
 
 app.get('/user_info', userInfoHandler);
@@ -177,10 +68,10 @@ async function userInfoHandler(req: any, res: any) {
 
   if (userId[0].resolve != null){
     resolve = userId[0].resolve.split("/");
-    for (let i = 0; i < resolve.length - 1; i++){
+    for (let i = 0; i < resolve.length - 2; i++){
       text += "`id`='" + resolve[i] + "' OR ";
     }
-    text += "`id`='" + resolve[resolve.length - 1] + "'";
+    text += "`id`='" + resolve[resolve.length - 2] + "'";
   }
   if (userId[0].favorite != null){
     favorite = userId[0].favorite.split("/");
@@ -191,20 +82,76 @@ async function userInfoHandler(req: any, res: any) {
   res.send([getList(result[0]),favorite]);
 }
 
+app.get('/word_check', checkHandler);
+async function checkHandler(req: any, res: any) {
+  if (connection == null) return;
 
+  let text = req.query.text;
+  let wordId = req.query.wordId;
+  let token = req.headers["access-token"];
+  let tokenResult:any = [];
+  
+  let [result] =  await connection.query("SELECT `yomigana` FROM `words` WHERE `id`=?",[wordId]);
+  if (result == null) {
+    res.status(404).send({reason:"not found id"});
+    return;
+  }
+  let correct:boolean = result[0].yomigana == text ? true : false;
 
-//마이페이지이동 or 문제 제출때 토큰 시간 지나면 강제 로그아웃하게 하기
-//토큰 갱신할때 처음거랑 하루 이상 차이날시 전부 삭제후 발급
+  if (token) {
+    tokenResult = await connection.query("SELECT `user_id` FROM `tokens` WHERE `token`=?",[token]);
+  }
+  if (correct && tokenResult.length > 0){
+    await connection.query("UPDATE `users` SET `resolve`=CONCAT(`users`.`resolve`,?) WHERE `id`=?",[wordId+"/",tokenResult[0][0].user_id])
+  }
 
-//풀었던 문제 리스트 보낼 때 >> 토큰에서 유저인덱스 유니온 users 푼 문제 리스트
-//그럼 푼 문제를 한번에 줄 게 아니라 나눠서 db에 저장해야하나? 
-// 아냐, 한번에 받은 다음 탭할때마다 전송하는게 좋을거같아
-//그럼 서버에서는... 여러개받아서 스플리트 해서 or조건으로 전부 반환하면 됨
-//문제는 한 단어의 여러종류를 풀었을때..인데
-// 차피 or문 들어가면 똑같잖아? 그냥 다 넣어서 하면 될 듯
+  res.send({isAnswer:correct});
+}
 
+app.get('/answer', answerHandler);
+async function answerHandler(req: any, res: any) {
+  if (connection == null) return;
 
+  let wordId = req.query.wordId;
+  let [result] =  await connection.query("SELECT `yomigana` FROM `words` WHERE `id`=?",[wordId]);
+  if (result == null) {
+    res.status(404).send({reason:"not found id"});
+    return;
+  }
+  res.send({yomigana: result[0].yomigana});
+}
 
+app.get('/translate', translateHandler);
+async function translateHandler(req: any, res: any):Promise<any> {
+  const authKey = String(process.env.authKey);
+  const translator = new deepl.Translator(authKey);
+
+  let text = req.query.text;
+  let type = req.query.type;
+  let startLanguage = '';
+  let toLanguage = '';
+
+  if (text == null) text = "안녕하세요";
+  if (type == null) type = 0;
+
+  if (type == 0) {
+    startLanguage = 'ja';
+    toLanguage = 'ko';
+  }else {
+    startLanguage = 'ko';
+    toLanguage = 'ja';
+  }
+  translator.translateText(text, startLanguage as deepl.SourceLanguageCode, toLanguage as deepl.TargetLanguageCode)
+    .then(deeplFetchHandler)
+    .catch(deeplErrorHandler);
+
+  function deeplErrorHandler() {
+    res.status(404).send();
+  }
+  function deeplFetchHandler(response:any) {
+    res.send(response.text);
+  }
+}
 
 app.post('/login', loginHandler);
 async function loginHandler(req: any, res:any) {
@@ -248,7 +195,7 @@ async function registHandler(req: any, res: any) {
   }
 
   try {
-      await connection.query("INSERT INTO `users`(`user_id`,`password`) VALUES(?,?)", [id, password]);
+      await connection.query("INSERT INTO `users`(`user_id`,`password`,`resolve`,`favorite`) VALUES(?,?)", [id, password,"0/","0/"]);
   } catch {
     res.status(400).send({ reason:"DB Error" });
     return;
@@ -258,8 +205,11 @@ async function registHandler(req: any, res: any) {
 }
 
 
+////////////////////////////////////////////////////////////////////////////////////////////////
+
 function getList(data:any):any{
   let list:any[] = [];
+  if (data==null || data.length < 1) { return list;}
   for(let i = 0; i < data.length; i++) {
     list.push ({
       id : data[i].id,
