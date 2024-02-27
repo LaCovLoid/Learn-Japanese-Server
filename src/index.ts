@@ -55,8 +55,8 @@ async function userInfoHandler(req: any, res: any) {
     return;
   }
 
-  let [userId] = await connection.query("SELECT `resolve`,`favorite` FROM `users` WHERE `id`=?", [tokenUserId[0].user_id]);
-  if (userId.length == 0){
+  let [user] = await connection.query("SELECT `user_id`,`resolve`,`favorite` FROM `users` WHERE `id`=?", [tokenUserId[0].user_id]);
+  if (user.length == 0){
     res.status(404).send({reason:"user not found"});
     return;
   }
@@ -66,20 +66,20 @@ async function userInfoHandler(req: any, res: any) {
   let resolve = [];
   let text = "";
 
-  if (userId[0].resolve != null){
-    resolve = userId[0].resolve.split("/");
+  if (user[0].resolve != null){
+    resolve = user[0].resolve.split("/");
     for (let i = 0; i < resolve.length - 2; i++){
       text += "`id`='" + resolve[i] + "' OR ";
     }
     text += "`id`='" + resolve[resolve.length - 2] + "'";
   }
-  if (userId[0].favorite != null){
-    favorite = userId[0].favorite.split("/");
+  if (user[0].favorite != null){
+    favorite = user[0].favorite.split("/");
   }
   if (text !=""){
     result =  await connection.query("SELECT * FROM `words` WHERE "+text);
   }
-  res.send([getList(result[0]),favorite]);
+  res.send({user_id:user[0].user_id,resolve:getList(result[0]),favorite:favorite});
 }
 
 app.get('/word_check', checkHandler);
@@ -170,6 +170,7 @@ async function loginHandler(req: any, res:any) {
   }
 
   let hashToken = sha512Hash(id + password + new Date());
+  await connection.query("DELETE FROM `tokens` WHERE `user_id`=?", [user[0].id]); 
   await connection.query("INSERT INTO `tokens`(`token`,`user_id`)VALUES(?,?)", [hashToken, user[0].id]);
 
   res.send(hashToken);

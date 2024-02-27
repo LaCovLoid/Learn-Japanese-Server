@@ -55,8 +55,8 @@ async function userInfoHandler(req, res) {
     return;
   }
 
-  let [userId] = await connection.query("SELECT `resolve`,`favorite` FROM `users` WHERE `id`=?", [tokenUserId[0].user_id]);
-  if (userId.length == 0){
+  let [user] = await connection.query("SELECT `user_id`,`resolve`,`favorite` FROM `users` WHERE `id`=?", [tokenUserId[0].user_id]);
+  if (user.length == 0){
     res.status(404).send({reason:"user not found"});
     return;
   }
@@ -66,20 +66,20 @@ async function userInfoHandler(req, res) {
   let resolve = [];
   let text = "";
 
-  if (userId[0].resolve != null){
-    resolve = userId[0].resolve.split("/");
+  if (user[0].resolve != null){
+    resolve = user[0].resolve.split("/");
     for (let i = 0; i < resolve.length - 2; i++){
       text += "`id`='" + resolve[i] + "' OR ";
     }
     text += "`id`='" + resolve[resolve.length - 2] + "'";
   }
-  if (userId[0].favorite != null){
-    favorite = userId[0].favorite.split("/");
+  if (user[0].favorite != null){
+    favorite = user[0].favorite.split("/");
   }
   if (text !=""){
     result =  await connection.query("SELECT * FROM `words` WHERE "+text);
   }
-  res.send([getList(result[0]),favorite]);
+  res.send({user_id:user[0].user_id,resolve:getList(result[0]),favorite:favorite});
 }
 
 app.get('/word_check', checkHandler);
@@ -153,19 +153,6 @@ async function translateHandler(req, res) {
   }
 }
 
-//마이페이지이동 or 문제 제출때 토큰 시간 지나면 강제 로그아웃하게 하기
-//토큰 갱신할때 처음거랑 하루 이상 차이날시 전부 삭제후 발급
-
-//풀었던 문제 리스트 보낼 때 >> 토큰에서 유저인덱스 유니온 users 푼 문제 리스트
-//그럼 푼 문제를 한번에 줄 게 아니라 나눠서 db에 저장해야하나? 
-// 아냐, 한번에 받은 다음 탭할때마다 전송하는게 좋을거같아
-//그럼 서버에서는... 여러개받아서 스플리트 해서 or조건으로 전부 반환하면 됨
-//문제는 한 단어의 여러종류를 풀었을때..인데
-// 차피 or문 들어가면 똑같잖아? 그냥 다 넣어서 하면 될 듯
-
-
-
-
 app.post('/login', loginHandler);
 async function loginHandler(req, res) {
   let id = req.body.id._value;
@@ -183,6 +170,7 @@ async function loginHandler(req, res) {
   }
 
   let hashToken = sha512Hash(id + password + new Date());
+  await connection.query("DELETE FROM `tokens` WHERE `user_id`=?", [user[0].id]); 
   await connection.query("INSERT INTO `tokens`(`token`,`user_id`)VALUES(?,?)", [hashToken, user[0].id]);
 
   res.send(hashToken);
@@ -208,7 +196,7 @@ async function registHandler(req, res) {
   }
 
   try {
-      await connection.query("INSERT INTO `users`(`user_id`,`password`) VALUES(?,?)", [id, password]);
+      await connection.query("INSERT INTO `users`(`user_id`,`password`,`resolve`,`favorite`) VALUES(?,?)", [id, password,"0/","0/"]);
   } catch (e) {
     res.status(400).send({ reason:"DB Error" });
     return;
