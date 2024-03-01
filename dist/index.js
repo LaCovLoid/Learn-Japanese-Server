@@ -6,6 +6,12 @@ var _crypto = require('crypto'); var _crypto2 = _interopRequireDefault(_crypto);
 var _cors = require('cors'); var _cors2 = _interopRequireDefault(_cors);
 var _deeplnode = require('deepl-node'); var deepl = _interopRequireWildcard(_deeplnode);
 
+var _openai = require('openai');
+
+const openai = new (0, _openai.OpenAI)({
+  apiKey: process.env.OPENAI_API_KEY  //???값을 넣으면 잘 됨. process를 쓰면 안됨
+});
+
 const app = _express2.default.call(void 0, );
 const port = 3000;
 let connection;
@@ -103,7 +109,20 @@ async function checkHandler(req, res) {
     tokenResult = await connection.query("SELECT `user_id` FROM `tokens` WHERE `token`=?",[token]);
   }
   if (correct && tokenResult.length > 0){
-    await connection.query("UPDATE `users` SET `resolve`=CONCAT(`users`.`resolve`,?) WHERE `id`=?",[wordId+"/",tokenResult[0][0].user_id])
+    let [resolveResult] = await connection.query("SELECT `resolve` FROM `users` WHERE `id`=?",[tokenResult[0][0].user_id]);
+    if (resolveResult.length > 0) {
+      let isExist = false;
+      let resolve = resolveResult[0].resolve.split('/');
+      for (let i = 0; i < resolve.length; i++) {
+        if (resolve[i] == wordId) {
+          isExist = true;
+          return;
+        }
+      }
+      if (!isExist) {
+        await connection.query("UPDATE `users` SET `resolve`=CONCAT(`users`.`resolve`,?) WHERE `id`=?",[wordId+"/",tokenResult[0][0].user_id])
+      }
+    }
   }
 
   res.send({isAnswer:correct});
@@ -212,7 +231,7 @@ async function modifyFavoriteHandler(req,res) {
     favoriteText += favorite[i] + '/';
   }
   await connection.query("UPDATE `users` SET `favorite`=? WHERE `id`=?", [favoriteText, temp[0].user_id]);
-
+  res.send({success: true});
 }
 
 app.post('/login', loginHandler);
@@ -268,8 +287,18 @@ async function registHandler(req, res) {
 
   res.send({ success: true });
 }
+/*
+async function runChatGPT() {
+  const completion = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [{ role: "user", content: "Say this is a test" }],
+      stream: true,
+  });
+  console.log((completion as any).data)
+}
 
-
+runChatGPT();
+*/
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
 function getList(data){
