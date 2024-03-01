@@ -5,6 +5,12 @@ import crypto from 'crypto';
 import axios from 'axios';
 import cors from 'cors';
 import * as deepl from 'deepl-node';
+import { resolve } from 'path';
+import { OpenAI } from 'openai';
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY  //???값을 넣으면 잘 됨. process를 쓰면 안됨
+});
 
 const app = express();
 const port = 3000;
@@ -103,7 +109,20 @@ async function checkHandler(req:any, res:any) {
     tokenResult = await connection.query("SELECT `user_id` FROM `tokens` WHERE `token`=?",[token]);
   }
   if (correct && tokenResult.length > 0){
-    await connection.query("UPDATE `users` SET `resolve`=CONCAT(`users`.`resolve`,?) WHERE `id`=?",[wordId+"/",tokenResult[0][0].user_id])
+    let [resolveResult] = await connection.query("SELECT `resolve` FROM `users` WHERE `id`=?",[tokenResult[0][0].user_id]);
+    if (resolveResult.length > 0) {
+      let isExist = false;
+      let resolve = resolveResult[0].resolve.split('/');
+      for (let i = 0; i < resolve.length; i++) {
+        if (resolve[i] == wordId) {
+          isExist = true;
+          return;
+        }
+      }
+      if (!isExist) {
+        await connection.query("UPDATE `users` SET `resolve`=CONCAT(`users`.`resolve`,?) WHERE `id`=?",[wordId+"/",tokenResult[0][0].user_id])
+      }
+    }
   }
 
   res.send({isAnswer:correct});
@@ -212,7 +231,7 @@ async function modifyFavoriteHandler(req:any,res:any) {
     favoriteText += favorite[i] + '/';
   }
   await connection.query("UPDATE `users` SET `favorite`=? WHERE `id`=?", [favoriteText, temp[0].user_id]);
-
+  res.send({success: true});
 }
 
 app.post('/login', loginHandler);
@@ -268,8 +287,18 @@ async function registHandler(req:any, res:any) {
 
   res.send({ success: true });
 }
+/*
+async function runChatGPT() {
+  const completion = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [{ role: "user", content: "Say this is a test" }],
+      stream: true,
+  });
+  console.log((completion as any).data)
+}
 
-
+runChatGPT();
+*/
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
 function getList(data:any):any{
